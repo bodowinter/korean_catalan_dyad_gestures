@@ -1,0 +1,648 @@
+---
+title: "Gesture politeness analysis - Korean & Catalan dyads"
+author: "Bodo"
+date: "29/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Prelims
+
+Load packages:
+
+```{r, warning = FALSE, message = FALSE}
+library(tidyverse)
+library(brms)
+```
+
+Load data:
+
+```{r, warning = FALSE, message = FALSE}
+freq <- read_csv('../data/frequency_size.csv')
+path <- read_csv('../data/path_manner_ground_viewpoint.csv')
+```
+
+Show:
+
+```{r}
+freq
+path
+```
+
+We can just append the two into a new tibble called 'dyads':
+
+```{r}
+dyads <- bind_cols(freq, select(path, TotalEvents:Dual))
+```
+
+Create a unique identifier by merging language with ID:
+
+```{r}
+dyads <- mutate(dyads,
+                ID = str_c(Language, '_', Participant)) %>% 
+  select(-Participant) %>% 
+  select(ID, Language, Condition, Gender, Total_Freq:Dual)
+```
+
+Sort by ID so that polite/informal are next to each other:
+
+```{r}
+dyads <- arrange(dyads,
+                 ID, Condition)
+```
+
+Check one more time:
+
+```{r}
+dyads
+```
+
+## Settings for Bayesian analysis (same across all)
+
+Settings for parallel processing:
+
+```{r}
+options(mc.cores=parallel::detectCores())
+```
+
+Weakly informative priors:
+
+```{r}
+my_priors <- c(prior('normal(0, 2)', class = 'b'))
+```
+
+Control parameters for MCMC sampling:
+
+```{r}
+my_controls = list(adapt_delta = 0.999,
+                   max_treedepth = 13)
+```
+
+Iterations for all chains:
+
+```{r}
+my_iter <- 6000
+my_warmup <- 4000
+```
+
+## Analysis: Gesture frequency
+
+Check total frequency:
+
+```{r}
+freqs <- dyads %>% select(Language, ID, Condition, Total_Freq) %>% 
+  pivot_wider(names_from = Condition, values_from = Total_Freq) %>% 
+  mutate(PoliteDiff = Superior - Friend)
+
+# Check:
+
+freqs %>% print(n = Inf)
+```
+
+Very consistent picture where Koreans always have less gestures in the superior condition. Compute for how many this is:
+
+```{r}
+freqs <- freqs %>%
+  mutate(Category = ifelse(PoliteDiff > 0, 'more polite', PoliteDiff),
+         Category = ifelse(Category < 0, 'less polite', Category),
+         Category = ifelse(Category == 0, 'same', Category))
+
+# Count:
+
+freqs %>% count(Language, Category)
+```
+
+For a Poisson model, we'll work with the long format, but we'll have to make language and condition into sum-coded factors to interpret the interaction:
+
+```{r}
+# Make into factor:
+
+dyads <- mutate(dyads,
+                Language_c = factor(Language),
+                Condition_c = factor(Condition))
+
+# Deviation code with Catalan and Friend as reference level (which is the multiplication by -1)
+
+contrasts(dyads$Language_c) <- (contr.sum(2) * -1) / 2
+contrasts(dyads$Condition_c) <- (contr.sum(2) * -1) / 2
+```
+
+Fit Bayesian model:
+
+```{r, warning = FALSE, message = FALSE}
+freq_mdl <- brm(Total_Freq ~ Language_c * Condition_c + (1 + Condition_c|ID),
+      data = dyads, family = 'negbinomial',
+      prior = my_priors,
+      control = my_controls,
+      seed = 42,
+      init = 0, chains = 4, iter = my_iter, warmup = my_warmup)
+```
+
+Model summary:
+
+```{r}
+summary(freq_mdl)
+```
+
+What does the interaction mean? For this the sum-codes need to be checked:
+
+```{r}
+contrasts(dyads$Language_c)
+contrasts(dyads$Condition_c)
+```
+
+Get the posterior probability of the interaction and language effects:
+
+```{r}
+posts <- posterior_samples(freq_mdl)
+```
+
+Check whether the condition effect is above zero:
+
+```{r}
+sum(posts$b_Condition_c1 > 0) / nrow(posts)
+```
+
+Check whether the interaction is above zero:
+
+```{r}
+sum(posts$`b_Language_c1:Condition_c1` > 0) / nrow(posts)
+```
+
+Posterior predictive checks to see whether our model could've predicted the data.
+
+```{r, fig.width = 8, fig.height = 6}
+pp_check(freq_mdl, nsamples = 100)
+```
+
+Looks good.
+
+## Analysis: Gesture size
+
+Check frequency of vertical and lateral large gestures... which needs to be divided by the total frequency (since the large gestures are a subset of). If we don't calculate proportions, then the result would just be rehashing the total frequency result, as we know that overall gesture rates are lower for superior.
+
+```{r}
+vertical <- dyads %>% select(Language, ID, Condition, Vertical_Big, Total_Freq) %>% 
+  pivot_wider(names_from = Condition, values_from = c(Vertical_Big, Total_Freq)) %>%
+  mutate(Vertical_Big_Superior = Vertical_Big_Superior / Total_Freq_Superior,
+         Vertical_Big_Friend = Vertical_Big_Friend / Total_Freq_Friend,
+         PoliteDiff = Vertical_Big_Superior - Vertical_Big_Friend)
+lateral <- dyads %>% select(Language, ID, Condition, Lateral_Big, Total_Freq) %>% 
+  pivot_wider(names_from = Condition, values_from = c(Lateral_Big, Total_Freq)) %>%
+  mutate(Lateral_Big_Superior = Lateral_Big_Superior / Total_Freq_Superior,
+         Lateral_Big_Friend = Lateral_Big_Friend / Total_Freq_Friend,
+         PoliteDiff = Lateral_Big_Superior - Lateral_Big_Friend)
+
+# Check:
+
+vertical %>% print(n = Inf)
+lateral %>% print(n = Inf)
+```
+
+Very consistent picture where Koreans always have less gestures in the superior condition. Compute for how many this is:
+
+```{r}
+vertical <- vertical %>%
+  mutate(Category = ifelse(PoliteDiff > 0, 'more polite', PoliteDiff),
+         Category = ifelse(Category < 0, 'less polite', Category),
+         Category = ifelse(Category == 0, 'same', Category))
+lateral <- lateral %>%
+  mutate(Category = ifelse(PoliteDiff > 0, 'more polite', PoliteDiff),
+         Category = ifelse(Category < 0, 'less polite', Category),
+         Category = ifelse(Category == 0, 'same', Category))
+
+# Count:
+
+vertical %>% count(Language, Category)
+lateral %>% count(Language, Category)
+```
+
+Average all the big gestures together:
+
+```{r}
+dyads <- mutate(dyads,
+                BigGesture = Vertical_Big + Lateral_Big + Sagittal_Big)
+```
+
+Create a model for big gestures — can't do this because the denominator isn't right:
+
+```{r}
+# big_mdl <- brm(BigGesture | trials(Total_Freq) ~ Language_c * Condition_c +
+#                  (1 + Condition_c|ID),
+#                data = dyads, family = binomial,
+#                prior = my_priors, control = my_controls,
+#                seed = 42,
+#                init = 0, chains = 4, iter = my_iter, warmup = my_warmup)
+```
+
+Summarize model:
+
+```{r}
+# summary(big_mdl)
+```
+
+Get the posterior probabilities of the big_mdl:
+
+```{r}
+# posts <- posterior_samples(big_mdl)
+```
+
+Posterior probability of the condition effect being above 0:
+
+```{r}
+# sum(posts$b_Condition_c1 > 0) / nrow(posts)
+```
+
+Posterior probability of the interaction effect being above 0:
+
+```{r}
+# sum(posts$`b_Language_c1:Condition_c1` > 0) / nrow(posts)
+```
+
+Posterior predictive checks to see whether our model could've predicted the data, vertical:
+
+```{r, fig.width = 8, fig.height = 6}
+# pp_check(big_mdl, nsamples = 100)
+```
+
+
+
+## Analysis: Use of two-handed gestures
+
+Check frequency of two-handed gestures:
+
+```{r}
+both <- dyads %>% select(Language, ID, Condition, Both_Hands, Total_Freq) %>% 
+  pivot_wider(names_from = Condition, values_from = c(Both_Hands, Total_Freq)) %>% 
+  mutate(Both_Hands_Superior = Both_Hands_Superior / Total_Freq_Superior, 
+         Both_Hands_Friend = Both_Hands_Friend / Total_Freq_Friend,
+         PoliteDiff = Both_Hands_Superior - Both_Hands_Friend)
+
+# Check:
+
+both %>% print(n = Inf)
+```
+
+Very consistent picture where two-handed gestures are used less in the superior context. Compute for how many this is:
+
+```{r}
+both <- both %>%
+  mutate(Category = ifelse(PoliteDiff > 0, 'more polite', PoliteDiff),
+         Category = ifelse(Category < 0, 'less polite', Category),
+         Category = ifelse(Category == 0, 'same', Category))
+
+# Count:
+
+both %>% count(Language, Category)
+```
+
+Create a model for big gestures:
+
+```{r, warning = FALSE, message = FALSE}
+both_mdl <- brm(Both_Hands | trials(Total_Freq) ~ Language_c * Condition_c +
+                  (1 + Condition_c|ID),
+                data = dyads, family = binomial,
+                prior = my_priors, control = my_controls,
+                seed = 42,
+                init = 0, chains = 4, iter = my_iter, warmup = my_warmup)
+```
+
+Summarize model:
+
+```{r}
+summary(both_mdl)
+```
+
+Get the posterior probabilities of the both_mdl:
+
+```{r}
+posts <- posterior_samples(both_mdl)
+```
+
+Posterior probability of the condition effect being above 0:
+
+```{r}
+sum(posts$b_Condition_c1 > 0) / nrow(posts)
+```
+
+Posterior probability of the interaction effect being above 0:
+
+```{r}
+sum(posts$`b_Language_c1:Condition_c1` > 0) / nrow(posts)
+```
+
+Posterior predictive checks to see whether our model could've predicted the data, vertical:
+
+```{r, fig.width = 8, fig.height = 6}
+pp_check(both_mdl, nsamples = 100)
+```
+
+## Analysis: Use of open-handed gestures
+
+Check frequency of open-handed gestures per speaker:
+
+```{r}
+open <- dyads %>% select(Language, ID, Condition, Shape_Open, Total_Freq) %>% 
+  pivot_wider(names_from = Condition, values_from = c(Shape_Open, Total_Freq)) %>% 
+  mutate(Shape_Open_Superior = Shape_Open_Superior / Total_Freq_Superior, 
+         Shape_Open_Friend = Shape_Open_Friend / Total_Freq_Friend,
+         PoliteDiff = Shape_Open_Superior - Shape_Open_Friend)
+
+# Check:
+
+open %>% print(n = Inf)
+```
+
+Very consistent picture where two-handed gestures are used less in the superior context. Compute for how many this is:
+
+```{r}
+open <- open %>%
+  mutate(Category = ifelse(PoliteDiff > 0, 'more polite', PoliteDiff),
+         Category = ifelse(Category < 0, 'less polite', Category),
+         Category = ifelse(Category == 0, 'same', Category))
+
+# Count:
+
+open %>% count(Language, Category)
+```
+
+Create a model for big gestures:
+
+```{r, warning = FALSE, message = FALSE}
+open_mdl <- brm(Shape_Open | trials(Total_Freq) ~ Language_c * Condition_c +
+                  (1 + Condition_c|ID),
+                data = dyads, family = binomial,
+                prior = my_priors, control = my_controls,
+                seed = 42,
+                init = 0, chains = 4, iter = my_iter, warmup = my_warmup)
+```
+
+Summarize model:
+
+```{r}
+summary(open_mdl)
+```
+
+Get the posterior probability of the interaction and language effects for the open mdl:
+
+```{r}
+posts <- posterior_samples(open_mdl)
+```
+
+Posterior probability of the condition effect being above 0:
+
+```{r}
+sum(posts$b_Condition_c1 > 0) / nrow(posts)
+```
+
+Posterior probability of the interaction effect being above 0:
+
+```{r}
+sum(posts$`b_Language_c1:Condition_c1` > 0) / nrow(posts)
+```
+
+Posterior predictive checks to see whether our model could've predicted the data, vertical:
+
+```{r, fig.width = 8, fig.height = 6}
+pp_check(open_mdl, nsamples = 100)
+```
+
+## Analysis: path, manner, ground
+
+Calculate rate of path/manner/ground encoding per total gestures:
+
+```{r}
+dyads <- mutate(dyads,
+                Path_p = Path / Total_Freq,
+                Manner_p = Manner / Total_Freq,
+                Ground_p = Manner / Total_Freq)
+```
+
+Calculate path change by speaker and whether it changes based on superiority:
+
+```{r}
+path <- dyads %>% select(Language, ID, Condition, Path_p) %>% 
+  pivot_wider(names_from = Condition, values_from = Path_p) %>% 
+  mutate(PoliteDiff = Superior - Friend)
+
+# Check:
+
+path %>% print(n = Inf)
+
+# Speaker changes overall:
+
+path <- path %>%
+  mutate(Category = ifelse(PoliteDiff > 0, 'more polite', PoliteDiff),
+         Category = ifelse(Category < 0, 'less polite', Category),
+         Category = ifelse(Category == 0, 'same', Category))
+
+# Count:
+
+path %>% count(Language, Category)
+```
+
+Same for manner:
+
+```{r}
+manner <- dyads %>% select(Language, ID, Condition, Manner_p) %>% 
+  pivot_wider(names_from = Condition, values_from = Manner_p) %>% 
+  mutate(PoliteDiff = Superior - Friend)
+
+# Check:
+
+manner %>% print(n = Inf)
+
+# Speaker changes overall:
+
+manner <- manner %>%
+  mutate(Category = ifelse(PoliteDiff > 0, 'more polite', PoliteDiff),
+         Category = ifelse(Category < 0, 'less polite', Category),
+         Category = ifelse(Category == 0, 'same', Category))
+
+# Count:
+
+manner %>% count(Language, Category)
+```
+
+Same for ground:
+
+```{r}
+ground <- dyads %>% select(Language, ID, Condition, Ground_p) %>% 
+  pivot_wider(names_from = Condition, values_from = Ground_p) %>% 
+  mutate(PoliteDiff = Superior - Friend)
+
+# Check:
+
+ground %>% print(n = Inf)
+
+# Speaker changes overall:
+
+ground <- ground %>%
+  mutate(Category = ifelse(PoliteDiff > 0, 'more polite', PoliteDiff),
+         Category = ifelse(Category < 0, 'less polite', Category),
+         Category = ifelse(Category == 0, 'same', Category))
+
+# Count:
+
+ground %>% count(Language, Category)
+```
+
+Create models:
+
+```{r, warning = FALSE, message = FALSE}
+# Path:
+
+path_mdl <- brm(Path | trials(Total_Freq) ~ Language_c * Condition_c +
+                  (1 + Condition_c|ID),
+                data = dyads, family = binomial,
+                prior = my_priors, control = my_controls,
+                seed = 42,
+                init = 0, chains = 4, iter = my_iter, warmup = my_warmup)
+
+# Manner:
+
+manner_mdl <- brm(Manner | trials(Total_Freq) ~ Language_c * Condition_c +
+                    (1 + Condition_c|ID),
+                  data = dyads, family = binomial,
+                  prior = my_priors, control = my_controls,
+                  seed = 42,
+                  init = 0, chains = 4, iter = my_iter, warmup = my_warmup)
+
+# Ground:
+
+ground_mdl <- brm(Ground | trials(Total_Freq) ~ Language_c * Condition_c +
+                    (1 + Condition_c|ID),
+                  data = dyads, family = binomial,
+                  prior = my_priors, control = my_controls,
+                  seed = 42,
+                  init = 0, chains = 4, iter = my_iter, warmup = my_warmup)
+```
+
+Summarize models:
+
+```{r}
+summary(path_mdl)
+summary(manner_mdl)
+summary(ground_mdl)
+```
+
+Get the posterior probabilities of each:
+
+```{r}
+path_posts <- posterior_samples(path_mdl)
+manner_posts <- posterior_samples(manner_mdl)
+ground_posts <- posterior_samples(ground_mdl)
+```
+
+Posterior probability of the condition effect being above 0:
+
+```{r}
+sum(path_posts$b_Condition_c1 > 0) / nrow(path_posts)
+sum(manner_posts$b_Condition_c1 > 0) / nrow(manner_posts)
+sum(ground_posts$b_Condition_c1 > 0) / nrow(ground_posts)
+```
+
+Posterior probability of the interaction effect being above 0:
+
+```{r}
+sum(path_posts$`b_Language_c1:Condition_c1` > 0) / nrow(path_posts)
+sum(manner_posts$`b_Language_c1:Condition_c1` > 0) / nrow(manner_posts)
+sum(ground_posts$`b_Language_c1:Condition_c1` > 0) / nrow(ground_posts)
+```
+
+Check the posterior predictive probabilities for each:
+
+```{r, fig.width = 8, fig.height = 6}
+pp_check(path_mdl, nsamples = 100)
+pp_check(manner_mdl, nsamples = 100)
+pp_check(ground_mdl, nsamples = 100)
+```
+
+## Analysis: Viewpoint
+
+Calculate difference in percentage between character and observer viewpoint:
+
+```{r}
+dyads <- mutate(dyads,
+                Character_p = Character / (Character + Observer),
+                Observer_p = Observer / (Character + Observer),
+                Viewpoint_diff = Character_p - Observer_p)
+```
+
+Do this for speakers to see if this changes for superior versus friend:
+
+```{r}
+viewpoint <- dyads %>% select(Language, ID, Condition, Viewpoint_diff) %>% 
+  pivot_wider(names_from = Condition, values_from = Viewpoint_diff) %>% 
+  mutate(PoliteDiff = Superior - Friend)
+
+# Check:
+
+viewpoint %>% print(n = Inf)
+```
+
+Very consistent picture where two-handed gestures are used less in the superior context. Compute for how many this is:
+
+```{r}
+viewpoint <- viewpoint %>%
+  mutate(Category = ifelse(PoliteDiff > 0, 'more polite', PoliteDiff),
+         Category = ifelse(Category < 0, 'less polite', Category),
+         Category = ifelse(Category == 0, 'same', Category))
+
+# Count:
+
+viewpoint %>% count(Language, Category)
+```
+
+Create a model for viewpoint. We will represent this as a binomial problem since this is a choice of character viewpoint or observer viewpoint. For this we need a "trial" variable (N of the binomial distribution), which will be the sum of observer and character gestures:
+
+```{r}
+dyads <- mutate(dyads,
+                Trial = Observer + Character)
+```
+
+Fit the model:
+
+```{r, warning = FALSE, message = FALSE}
+viewpoint_mdl <- brm(Character | trials(Trial) ~ Language_c * Condition_c +
+                       (1 + Condition_c|ID),
+                     data = dyads, family = binomial,
+                     prior = my_priors, control = my_controls,
+                     seed = 42,
+                     init = 0, chains = 4, iter = my_iter, warmup = my_warmup)
+```
+
+Summarize model:
+
+```{r}
+summary(viewpoint_mdl)
+```
+
+Get the posterior probability of the interaction and language effects for vertical:
+
+```{r}
+posts <- posterior_samples(viewpoint_mdl)
+```
+
+Posterior probability of the condition effect being above 0:
+
+```{r}
+sum(posts$b_Condition_c1 > 0) / nrow(posts)
+```
+
+Posterior probability of the interaction effect being above 0:
+
+```{r}
+sum(posts$`b_Language_c1:Condition_c1` > 0) / nrow(posts)
+```
+
+Posterior predictive checks to see whether our model could've predicted the data, vertical:
+
+```{r, fig.width = 8, fig.height = 6}
+pp_check(viewpoint_mdl, nsamples = 100)
+```
+
+
