@@ -18,6 +18,14 @@ library(tidyverse)
 library(brms)
 ```
 
+R and package versions for reporting and reproducibility:
+
+```{r}
+R.Version()
+packageVersion('tidyverse')
+packageVersion('brms')
+```
+
 Load data:
 
 ```{r, warning = FALSE, message = FALSE}
@@ -90,7 +98,39 @@ my_warmup <- 4000
 
 ## Analysis: Gesture frequency
 
-Check total frequency:
+Overall number of gestures per condition:
+
+```{r}
+dyads %>% group_by(Condition) %>% 
+  summarize(Freq = sum(Total_Freq)) %>% 
+  mutate(Prop = Freq / sum(Freq),
+         Prop = round(Prop, 2),
+         Percentage = str_c(Prop * 100, '%'))
+```
+
+Overall number of gestures per condition per language:
+
+```{r}
+# Tally by language and condition:
+
+freq_count <- dyads %>% group_by(Language, Condition) %>% 
+  summarize(Freq = sum(Total_Freq))
+
+# Take sums by language for calculating proportions, and calculate them:
+
+freq_count <- freq_count %>% group_by(Language) %>% 
+  summarize(Total = sum(Freq)) %>%
+  right_join(freq_count) %>% 
+  mutate(Prop = Freq / Total,
+         Prop = round(Prop, 2),
+         Percentage = str_c(Prop * 100, '%'))
+
+# Check:
+
+freq_count
+```
+
+Check total frequency by participant:
 
 ```{r}
 freqs <- dyads %>% select(Language, ID, Condition, Total_Freq) %>% 
@@ -272,6 +312,39 @@ Posterior predictive checks to see whether our model could've predicted the data
 
 ## Analysis: Use of two-handed gestures
 
+Overall number of gestures per condition:
+
+```{r}
+dyads %>% group_by(Condition) %>% 
+  summarize(Freq = sum(Both_Hands)) %>% 
+  mutate(Prop = Freq / sum(Freq),
+         Prop = round(Prop, 2),
+         Percentage = str_c(Prop * 100, '%'))
+```
+
+Overall number of gestures per condition per language:
+
+```{r}
+# Tally by language and condition:
+
+freq_count <- dyads %>% group_by(Language, Condition) %>% 
+  summarize(Freq = sum(Both_Hands))
+
+# Take sums by language for calculating proportions, and calculate them:
+
+freq_count <- freq_count %>% group_by(Language) %>% 
+  summarize(Total = sum(Freq)) %>%
+  right_join(freq_count) %>% 
+  mutate(Prop = Freq / Total,
+         Prop = round(Prop, 2),
+         Percentage = str_c(Prop * 100, '%'))
+
+# Check:
+
+freq_count
+```
+
+
 Check frequency of two-handed gestures:
 
 ```{r}
@@ -341,6 +414,38 @@ pp_check(both_mdl, nsamples = 100)
 ```
 
 ## Analysis: Use of open-handed gestures
+
+Overall number of gestures per condition:
+
+```{r}
+dyads %>% group_by(Condition) %>% 
+  summarize(Freq = sum(Shape_Open)) %>% 
+  mutate(Prop = Freq / sum(Freq),
+         Prop = round(Prop, 2),
+         Percentage = str_c(Prop * 100, '%'))
+```
+
+Overall number of gestures per condition per language:
+
+```{r}
+# Tally by language and condition:
+
+freq_count <- dyads %>% group_by(Language, Condition) %>% 
+  summarize(Freq = sum(Shape_Open))
+
+# Take sums by language for calculating proportions, and calculate them:
+
+freq_count <- freq_count %>% group_by(Language) %>% 
+  summarize(Total = sum(Freq)) %>%
+  right_join(freq_count) %>% 
+  mutate(Prop = Freq / Total,
+         Prop = round(Prop, 2),
+         Percentage = str_c(Prop * 100, '%'))
+
+# Check:
+
+freq_count
+```
 
 Check frequency of open-handed gestures per speaker:
 
@@ -412,13 +517,22 @@ pp_check(open_mdl, nsamples = 100)
 
 ## Analysis: path, manner, ground
 
+What is the overall number of path, manner, and ground gestures?
+
+```{r}
+dyads %>% summarize(Path = sum(Path),
+                    Manner = sum(Manner),
+                    Ground = sum(Ground))
+```
+
+
 Calculate rate of path/manner/ground encoding per total gestures:
 
 ```{r}
 dyads <- mutate(dyads,
                 Path_p = Path / Total_Freq,
                 Manner_p = Manner / Total_Freq,
-                Ground_p = Manner / Total_Freq)
+                Ground_p = Ground / Total_Freq)
 ```
 
 Calculate path change by speaker and whether it changes based on superiority:
@@ -562,6 +676,14 @@ pp_check(ground_mdl, nsamples = 100)
 ```
 
 ## Analysis: Viewpoint
+
+Overall number of Character, Observer, and Dual:
+
+```{r}
+dyads %>% summarize(Character = sum(Character),
+                    Observer = sum(Observer),
+                    Dual = sum(Observer))
+```
 
 Calculate difference in percentage between character and observer viewpoint:
 
