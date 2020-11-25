@@ -16,6 +16,7 @@ Load packages:
 ```{r, warning = FALSE, message = FALSE}
 library(tidyverse)
 library(brms)
+library(chron)
 ```
 
 R and package versions for reporting and reproducibility:
@@ -68,6 +69,82 @@ Check one more time:
 dyads
 ```
 
+## Add duration data
+
+Load the duration data in:
+
+```{r, message = FALSE, warning = FALSE}
+cat_dur <- read_csv('../data/catalan_durations.csv')
+kor_dur <- read_csv('../data/korean_durations.csv')
+```
+
+Add the label info:
+
+```{r}
+cat_dur
+kor_dur
+```
+
+Create unique identifiers:
+
+```{r}
+cat_dur <- mutate(cat_dur,
+                  ID = str_c('Catalan_', PPT_ID))
+kor_dur <- mutate(kor_dur,
+                  ID = str_c('Korean_', PPT_ID))
+```
+
+Append:
+
+```{r}
+durs <- bind_rows(select(cat_dur, ID, Friend, Prof),
+                  select(kor_dur, ID, Friend, Prof))
+```
+
+Make this into long format:
+
+```{r}
+durs <- pivot_longer(durs, cols = Friend:Prof,
+                     names_to = 'Condition',
+                     values_to = 'Duration')
+```
+
+Transform times to seconds:
+
+```{r}
+durs <- mutate(durs,
+               Seconds = times(Duration) * 60 * 24)
+```
+
+Check:
+
+```{r}
+durs
+```
+
+Make the labels the same as in the main table:
+
+```{r}
+durs <- mutate(durs,
+               Condition = ifelse(Condition == 'Prof', 'Superior', Condition))
+```
+
+Merge the two:
+
+```{r}
+dyads <- durs %>%
+  select(-Duration) %>%
+  right_join(dyads, by = c('ID', 'Condition'))
+```
+
+Check:
+
+```{r}
+dyads <- mutate(dyads,
+                Seconds = as.vector(Seconds))
+```
+
+
 ## Settings for Bayesian analysis (same across all)
 
 Settings for parallel processing:
@@ -102,10 +179,12 @@ Overall number of gestures per condition:
 
 ```{r}
 dyads %>% group_by(Condition) %>% 
-  summarize(Freq = sum(Total_Freq)) %>% 
+  summarize(Freq = sum(Total_Freq),
+            TotalDur = sum(Seconds)) %>% 
   mutate(Prop = Freq / sum(Freq),
          Prop = round(Prop, 2),
-         Percentage = str_c(Prop * 100, '%'))
+         Percentage = str_c(Prop * 100, '%'),
+         Rate = Freq / TotalDur *  60) # per minute
 ```
 
 Overall number of gestures per condition per language:
@@ -114,7 +193,8 @@ Overall number of gestures per condition per language:
 # Tally by language and condition:
 
 freq_count <- dyads %>% group_by(Language, Condition) %>% 
-  summarize(Freq = sum(Total_Freq))
+  summarize(Freq = sum(Total_Freq),
+            Dur = sum(Seconds))
 
 # Take sums by language for calculating proportions, and calculate them:
 
@@ -123,7 +203,8 @@ freq_count <- freq_count %>% group_by(Language) %>%
   right_join(freq_count) %>% 
   mutate(Prop = Freq / Total,
          Prop = round(Prop, 2),
-         Percentage = str_c(Prop * 100, '%'))
+         Percentage = str_c(Prop * 100, '%'),
+         Rate = Freq / Dur * 60)
 
 # Check:
 
@@ -142,7 +223,9 @@ freqs <- dyads %>% select(Language, ID, Condition, Total_Freq) %>%
 freqs %>% print(n = Inf)
 ```
 
-Very consistent picture where Koreans always have less gestures in the superior condition. Compute for how many this is:
+Very consistent picture where Koreans always have less gestures in the superior condition.
+
+Compute for how many this is:
 
 ```{r}
 freqs <- freqs %>%
@@ -154,6 +237,45 @@ freqs <- freqs %>%
 
 freqs %>% count(Language, Category)
 ```
+
+Add the rate information to that:
+
+```{r}
+durs <- dyads %>% select(Language, ID, Condition, Seconds) %>% 
+  pivot_wider(names_from = Condition, values_from = Seconds)
+
+rates <- left_join(freqs, durs, by = c('Language', 'ID')) %>% 
+  rename(Friend_N = Friend.x,
+         Superior_N = Superior.x,
+         Friend_dur = Friend.y,
+         Superior_dur = Superior.y)
+```
+
+Calculate the rate difference:
+
+```{r}
+rates <- mutate(rates,
+                Friend_rate = Friend_N / Friend_dur,
+                Superior_rate = Superior_N / Superior_dur,
+                PoliteDiff = Superior_rate - Friend_rate)
+
+# Check:
+
+rates %>% select(Language, ID, PoliteDiff) %>% print(n = Inf)
+```
+
+Compute for how many the rate lowered / increased:
+
+```{r}
+freqs <- freqs %>%
+  mutate(Category = ifelse(PoliteDiff > 0, 'more polite', 'less polite'))
+
+# Count:
+
+freqs %>% count(Language, Category)
+```
+
+Very consistent picture with lowered rates for Korean, not so much for Catalan, where it's about equal.
 
 For a Poisson model, we'll work with the long format, but we'll have to make language and condition into sum-coded factors to interpret the interaction:
 
@@ -170,10 +292,19 @@ contrasts(dyads$Language_c) <- (contr.sum(2) * -1) / 2
 contrasts(dyads$Condition_c) <- (contr.sum(2) * -1) / 2
 ```
 
+Durations should be log-transformed:
+
+```{r}
+dyads <- mutate(dyads,
+                LogDur = log10(Seconds))
+```
+
 Fit Bayesian model:
 
 ```{r, warning = FALSE, message = FALSE}
-freq_mdl <- brm(Total_Freq ~ Language_c * Condition_c + (1 + Condition_c|ID),
+freq_mdl <- brm(Total_Freq ~ Language_c * Condition_c +
+                  offset(LogDur) +
+                  (1 + Condition_c|ID),
       data = dyads, family = 'negbinomial',
       prior = my_priors,
       control = my_controls,
@@ -225,21 +356,35 @@ Looks good.
 Check frequency of vertical and lateral large gestures... which needs to be divided by the total frequency (since the large gestures are a subset of). If we don't calculate proportions, then the result would just be rehashing the total frequency result, as we know that overall gesture rates are lower for superior.
 
 ```{r}
-vertical <- dyads %>% select(Language, ID, Condition, Vertical_Big, Total_Freq) %>% 
-  pivot_wider(names_from = Condition, values_from = c(Vertical_Big, Total_Freq)) %>%
+vertical <- dyads %>%
+  select(Language, ID, Condition, Vertical_Big, Total_Freq) %>% 
+  pivot_wider(names_from = Condition,
+              values_from = c(Vertical_Big, Total_Freq)) %>%
   mutate(Vertical_Big_Superior = Vertical_Big_Superior / Total_Freq_Superior,
          Vertical_Big_Friend = Vertical_Big_Friend / Total_Freq_Friend,
          PoliteDiff = Vertical_Big_Superior - Vertical_Big_Friend)
-lateral <- dyads %>% select(Language, ID, Condition, Lateral_Big, Total_Freq) %>% 
-  pivot_wider(names_from = Condition, values_from = c(Lateral_Big, Total_Freq)) %>%
+
+lateral <- dyads %>%
+  select(Language, ID, Condition, Lateral_Big, Total_Freq) %>% 
+  pivot_wider(names_from = Condition,
+              values_from = c(Lateral_Big, Total_Freq)) %>%
   mutate(Lateral_Big_Superior = Lateral_Big_Superior / Total_Freq_Superior,
          Lateral_Big_Friend = Lateral_Big_Friend / Total_Freq_Friend,
          PoliteDiff = Lateral_Big_Superior - Lateral_Big_Friend)
+
+sagittal <- dyads %>%
+  select(Language, ID, Condition, Sagittal_Big, Total_Freq) %>% 
+  pivot_wider(names_from = Condition,
+              values_from = c(Sagittal_Big, Total_Freq)) %>%
+  mutate(Sagittal_Big_Superior = Sagittal_Big_Superior / Total_Freq_Superior,
+         Sagittal_Big_Friend = Sagittal_Big_Friend / Total_Freq_Friend,
+         PoliteDiff = Sagittal_Big_Superior - Sagittal_Big_Friend)
 
 # Check:
 
 vertical %>% print(n = Inf)
 lateral %>% print(n = Inf)
+sagittal %>% print(n = Inf)
 ```
 
 Very consistent picture where Koreans always have less gestures in the superior condition. Compute for how many this is:
@@ -253,62 +398,92 @@ lateral <- lateral %>%
   mutate(Category = ifelse(PoliteDiff > 0, 'more polite', PoliteDiff),
          Category = ifelse(Category < 0, 'less polite', Category),
          Category = ifelse(Category == 0, 'same', Category))
+sagittal <- sagittal %>%
+  mutate(Category = ifelse(PoliteDiff > 0, 'more polite', PoliteDiff),
+         Category = ifelse(Category < 0, 'less polite', Category),
+         Category = ifelse(Category == 0, 'same', Category))
 
 # Count:
 
 vertical %>% count(Language, Category)
 lateral %>% count(Language, Category)
-```
-
-Average all the big gestures together:
-
-```{r}
-dyads <- mutate(dyads,
-                BigGesture = Vertical_Big + Lateral_Big + Sagittal_Big)
+sagittal %>% count(Language, Category)
 ```
 
 Create a model for big gestures — can't do this because the denominator isn't right:
 
 ```{r}
-# big_mdl <- brm(BigGesture | trials(Total_Freq) ~ Language_c * Condition_c +
-#                  (1 + Condition_c|ID),
-#                data = dyads, family = binomial,
-#                prior = my_priors, control = my_controls,
-#                seed = 42,
-#                init = 0, chains = 4, iter = my_iter, warmup = my_warmup)
+vertical_mdl <- brm(Vertical_Big | trials(Total_Freq) ~ Language_c * Condition_c +
+                 (1 + Condition_c|ID),
+               data = dyads, family = binomial,
+               prior = my_priors, control = my_controls,
+               seed = 42,
+               init = 0, chains = 4, iter = my_iter, warmup = my_warmup)
+
+lateral_mdl <- brm(Lateral_Big | trials(Total_Freq) ~ Language_c * Condition_c +
+                 (1 + Condition_c|ID),
+               data = dyads, family = binomial,
+               prior = my_priors, control = my_controls,
+               seed = 42,
+               init = 0, chains = 4, iter = my_iter, warmup = my_warmup)
+
+sagittal_mdl <- brm(Sagittal_Big | trials(Total_Freq) ~ Language_c * Condition_c +
+                 (1 + Condition_c|ID),
+               data = dyads, family = binomial,
+               prior = my_priors, control = my_controls,
+               seed = 42,
+               init = 0, chains = 4, iter = my_iter, warmup = my_warmup)
 ```
 
 Summarize model:
 
 ```{r}
-# summary(big_mdl)
+summary(vertical_mdl)
+summary(lateral_mdl)
+summary(sagittal_mdl)
 ```
 
 Get the posterior probabilities of the big_mdl:
 
 ```{r}
-# posts <- posterior_samples(big_mdl)
+vertical_posts <- posterior_samples(vertical_mdl)
+lateral_posts <- posterior_samples(lateral_mdl)
+sagittal_posts <- posterior_samples(sagittal_mdl)
 ```
 
 Posterior probability of the condition effect being above 0:
 
 ```{r}
-# sum(posts$b_Condition_c1 > 0) / nrow(posts)
+sum(vertical_posts$b_Condition_c1 > 0) / nrow(vertical_posts)
+sum(lateral_posts$b_Condition_c1 > 0) / nrow(lateral_posts)
+sum(sagittal_posts$b_Condition_c1 > 0) / nrow(sagittal_posts)
 ```
 
 Posterior probability of the interaction effect being above 0:
 
 ```{r}
-# sum(posts$`b_Language_c1:Condition_c1` > 0) / nrow(posts)
+sum(vertical_posts$`b_Language_c1:Condition_c1` > 0) / nrow(vertical_posts)
+sum(lateral_posts$`b_Language_c1:Condition_c1` > 0) / nrow(lateral_posts)
+sum(sagittal_posts$`b_Language_c1:Condition_c1` > 0) / nrow(sagittal_posts)
 ```
 
 Posterior predictive checks to see whether our model could've predicted the data, vertical:
 
 ```{r, fig.width = 8, fig.height = 6}
-# pp_check(big_mdl, nsamples = 100)
+pp_check(vertical_mdl, nsamples = 100)
 ```
 
+Lateral:
 
+```{r, fig.width = 8, fig.height = 6}
+pp_check(lateral_mdl, nsamples = 100)
+```
+
+Sagittal:
+
+```{r, fig.width = 8, fig.height = 6}
+pp_check(sagittal_mdl, nsamples = 100)
+```
 
 ## Analysis: Use of two-handed gestures
 
@@ -767,4 +942,5 @@ Posterior predictive checks to see whether our model could've predicted the data
 pp_check(viewpoint_mdl, nsamples = 100)
 ```
 
+This completes this analysis.
 
