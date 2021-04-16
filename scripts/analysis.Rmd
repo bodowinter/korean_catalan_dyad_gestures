@@ -144,6 +144,63 @@ dyads <- mutate(dyads,
                 Seconds = as.vector(Seconds))
 ```
 
+## Data visualization
+
+Create a dataset with the average rate per speaker:
+
+```{r}
+avgs <- dyads %>% 
+  mutate(rate = Total_Freq / Seconds) %>% 
+  group_by(ID, Condition, Language) %>% 
+  summarize(rate_M = mean(rate))
+```
+
+Make a variable that codes for whether they go down or not:
+
+```{r}
+# Compute differences:
+
+diffs <- avgs %>% group_by(ID) %>% 
+  summarize(diff = diff(rate_M)) %>% 
+  mutate(trend = ifelse(diff < 0, 'down', 'not down'))
+
+# Add do average data frame:
+
+avgs <- left_join(avgs, diffs)
+```
+
+Plot this:
+
+```{r, fig.width = 6, fig.height = 6}
+rate_p <- avgs %>% ggplot(aes(x = Condition, y = rate_M,
+                       group = ID,
+                       fill = Condition)) +
+  geom_line(aes(col = trend)) +
+  scale_color_manual(values = c('black', 'grey')) +
+  geom_point(size = 3, shape = 21,
+             alpha = 0.85) +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  xlab('') +
+  ylab('Gestures per second') +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 16,
+                                                    b = 0, l = 0),
+                                    size = 16, face = 'bold'),
+        axis.text.x = element_text(face = 'bold', size = 12),
+        strip.text.x = element_text(face = 'bold', size = 16)) +
+  facet_wrap(~Language)
+
+# Save:
+
+rate_p
+ggsave(plot = rate_p, filename = '../figures/gesture_rate.pdf',
+       width = 6, height = 4)
+```
+
+
+
+
 
 ## Settings for Bayesian analysis (same across all)
 
@@ -275,7 +332,24 @@ freqs <- freqs %>%
 freqs %>% count(Language, Category)
 ```
 
-Very consistent picture with lowered rates for Korean, not so much for Catalan, where it's about equal.
+Make a plot of this. First, setup data frame for plotting:
+
+```{r}
+freq_avg <- filter(rates,
+                   # for Anna Borghi's conference:
+                   Language == "Korean") %>% 
+  select(ID, Friend_rate, Superior_rate) %>% 
+  pivot_longer(Friend_rate:Superior_rate,
+               names_to = 'Condition',
+               values_to = 'rate') %>% 
+  mutate(Condition = ifelse(Condition == 'Friend_rate',
+                            'with\nfriend', 'with\nprofessor'))
+                   
+# Check:
+
+freq_avg
+```
+
 
 For a Poisson model, we'll work with the long format, but we'll have to make language and condition into sum-coded factors to interpret the interaction:
 
@@ -296,7 +370,7 @@ Durations should be log-transformed:
 
 ```{r}
 dyads <- mutate(dyads,
-                LogDur = log10(Seconds))
+                LogDur = log(Seconds))
 ```
 
 Fit Bayesian model:
@@ -386,6 +460,168 @@ vertical %>% print(n = Inf)
 lateral %>% print(n = Inf)
 sagittal %>% print(n = Inf)
 ```
+
+For plotting, create long format data frames:
+
+```{r}
+lateral_avg <- lateral %>% select(Language:Lateral_Big_Superior) %>% 
+  pivot_longer(cols = Lateral_Big_Friend:Lateral_Big_Superior,
+               names_to = 'Condition',
+               values_to = 'Proportion') %>% 
+  mutate(Condition = ifelse(Condition == 'Lateral_Big_Friend', 'Friend', 'Superior'))
+```
+
+Create the difference labels:
+
+```{r}
+# Compute differences:
+
+diffs <- lateral_avg %>% group_by(ID) %>% 
+  summarize(diff = diff(Proportion)) %>% 
+  mutate(trend = ifelse(diff < 0, 'down', 'not down'))
+
+# Add do average data frame:
+
+lateral_avg <- left_join(lateral_avg, diffs)
+```
+
+New ggplots for this:
+
+```{r, fig.width = 4, fig.height = 6}
+lateral_p <- lateral_avg %>% ggplot(aes(x = Condition, y = Proportion,
+                       group = ID,
+                       fill = Condition)) +
+  geom_line(aes(col = trend)) +
+  scale_color_manual(values = c('black', 'grey')) +
+  geom_point(size = 3, shape = 21,
+             alpha = 0.85) +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  xlab('') +
+  ylab('Proportion of\nlarge gestures (lateral)') +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 16,
+                                                    b = 0, l = 0),
+                                    size = 16, face = 'bold'),
+        axis.text.x = element_text(face = 'bold', size = 12),
+        strip.text.x = element_text(face = 'bold', size = 16)) +
+  facet_wrap(~Language)
+
+# Save:
+
+lateral_p
+ggsave(plot = lateral_p, filename = '../figures/lateral_gestures.pdf',
+       width = 6, height = 4)
+```
+
+For plotting, create long format data frames:
+
+```{r}
+sagittal_avg <- sagittal %>% select(Language:Sagittal_Big_Superior) %>% 
+  pivot_longer(cols = Sagittal_Big_Friend:Sagittal_Big_Superior,
+               names_to = 'Condition',
+               values_to = 'Proportion') %>% 
+  mutate(Condition = ifelse(Condition == 'Sagittal_Big_Friend', 'Friend', 'Superior'))
+```
+
+Create the difference labels:
+
+```{r}
+# Compute differences:
+
+diffs <- sagittal_avg %>% group_by(ID) %>% 
+  summarize(diff = diff(Proportion)) %>% 
+  mutate(trend = ifelse(diff < 0, 'down', 'not down'))
+
+# Add do average data frame:
+
+sagittal_avg <- left_join(sagittal_avg, diffs)
+```
+
+New ggplots for this:
+
+```{r, fig.width = 4, fig.height = 6}
+sagittal_p <- sagittal_avg %>% ggplot(aes(x = Condition, y = Proportion,
+                       group = ID,
+                       fill = Condition)) +
+  geom_line(aes(col = trend)) +
+  scale_color_manual(values = c('black', 'grey')) +
+  geom_point(size = 3, shape = 21,
+             alpha = 0.85) +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  xlab('') +
+  ylab('Proportion of\nlarge gestures (sagittal)') +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 16,
+                                                    b = 0, l = 0),
+                                    size = 16, face = 'bold'),
+        axis.text.x = element_text(face = 'bold', size = 12),
+        strip.text.x = element_text(face = 'bold', size = 16)) +
+  facet_wrap(~Language)
+
+# Save:
+
+sagittal_p
+ggsave(plot = sagittal_p, filename = '../figures/sagittal_gestures.pdf',
+       width = 6, height = 4)
+```
+
+
+For plotting, create long format data frames:
+
+```{r}
+vertical_avg <- vertical %>% select(Language:Vertical_Big_Superior) %>% 
+  pivot_longer(cols = Vertical_Big_Friend:Vertical_Big_Superior,
+               names_to = 'Condition',
+               values_to = 'Proportion') %>% 
+  mutate(Condition = ifelse(Condition == 'Vertical_Big_Friend', 'Friend', 'Superior'))
+```
+
+Create the difference labels:
+
+```{r}
+# Compute differences:
+
+diffs <- vertical_avg %>% group_by(ID) %>% 
+  summarize(diff = diff(Proportion)) %>% 
+  mutate(trend = ifelse(diff < 0, 'down', 'not down'))
+
+# Add do average data frame:
+
+vertical_avg <- left_join(vertical_avg, diffs)
+```
+
+New ggplots for this:
+
+```{r, fig.width = 4, fig.height = 6}
+vertical_p <- vertical_avg %>% ggplot(aes(x = Condition, y = Proportion,
+                       group = ID,
+                       fill = Condition)) +
+  geom_line(aes(col = trend)) +
+  scale_color_manual(values = c('black', 'grey')) +
+  geom_point(size = 3, shape = 21,
+             alpha = 0.85) +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  xlab('') +
+  ylab('Proportion of\nlarge gestures (vertical)') +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 16,
+                                                    b = 0, l = 0),
+                                    size = 16, face = 'bold'),
+        axis.text.x = element_text(face = 'bold', size = 12),
+        strip.text.x = element_text(face = 'bold', size = 16)) +
+  facet_wrap(~Language)
+
+# Save:
+
+vertical_p
+ggsave(plot = vertical_p, filename = '../figures/vertical_gestures.pdf',
+       width = 6, height = 4)
+```
+
+
 
 Very consistent picture where Koreans always have less gestures in the superior condition. Compute for how many this is:
 
@@ -547,6 +783,60 @@ both <- both %>%
 both %>% count(Language, Category)
 ```
 
+Create a data visualization of this:
+
+```{r}
+both_avg <- both %>% select(Language:Both_Hands_Superior) %>% 
+  pivot_longer(cols = Both_Hands_Friend:Both_Hands_Superior,
+               names_to = 'Condition',
+               values_to = 'Proportion') %>% 
+  mutate(Condition = ifelse(Condition == 'Both_Hands_Friend', 'Friend', 'Superior'))
+```
+
+Create the difference labels:
+
+```{r}
+# Compute differences:
+
+diffs <- both_avg %>% group_by(ID) %>% 
+  summarize(diff = diff(Proportion)) %>% 
+  mutate(trend = ifelse(diff < 0, 'down', 'not down'))
+
+# Add do average data frame:
+
+both_avg <- left_join(both_avg, diffs)
+```
+
+New ggplots for this:
+
+```{r, fig.width = 4, fig.height = 6}
+both_p <- both_avg %>% ggplot(aes(x = Condition, y = Proportion,
+                       group = ID,
+                       fill = Condition)) +
+  geom_line(aes(col = trend)) +
+  scale_color_manual(values = c('black', 'grey')) +
+  geom_point(size = 3, shape = 21,
+             alpha = 0.85) +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  xlab('') +
+  ylab('Proportion of\ntwo-handed gestures') +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 16,
+                                                    b = 0, l = 0),
+                                    size = 16, face = 'bold'),
+        axis.text.x = element_text(face = 'bold', size = 12),
+        strip.text.x = element_text(face = 'bold', size = 16)) +
+  facet_wrap(~Language)
+
+# Save:
+
+both_p
+ggsave(plot = both_p, filename = '../figures/both_gestures.pdf',
+       width = 6, height = 4)
+```
+
+
 Create a model for big gestures:
 
 ```{r, warning = FALSE, message = FALSE}
@@ -647,6 +937,59 @@ open <- open %>%
 # Count:
 
 open %>% count(Language, Category)
+```
+
+Create a data visualization of this:
+
+```{r}
+open_avg <- open %>% select(Language:Shape_Open_Superior) %>% 
+  pivot_longer(cols = Shape_Open_Friend:Shape_Open_Superior,
+               names_to = 'Condition',
+               values_to = 'Proportion') %>% 
+  mutate(Condition = ifelse(Condition == 'Shape_Open_Friend', 'Friend', 'Superior'))
+```
+
+Create the difference labels:
+
+```{r}
+# Compute differences:
+
+diffs <- open_avg %>% group_by(ID) %>% 
+  summarize(diff = diff(Proportion)) %>% 
+  mutate(trend = ifelse(diff < 0, 'down', 'not down'))
+
+# Add do average data frame:
+
+open_avg <- left_join(open_avg, diffs)
+```
+
+New ggplots for this:
+
+```{r, fig.width = 4, fig.height = 6}
+open_p <- open_avg %>% ggplot(aes(x = Condition, y = Proportion,
+                       group = ID,
+                       fill = Condition)) +
+  geom_line(aes(col = trend)) +
+  scale_color_manual(values = c('black', 'grey')) +
+  geom_point(size = 3, shape = 21,
+             alpha = 0.85) +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  xlab('') +
+  ylab('Proportion of\nopen-handed gestures') +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 16,
+                                                    b = 0, l = 0),
+                                    size = 16, face = 'bold'),
+        axis.text.x = element_text(face = 'bold', size = 12),
+        strip.text.x = element_text(face = 'bold', size = 16)) +
+  facet_wrap(~Language)
+
+# Save:
+
+open_p
+ggsave(plot = open_p, filename = '../figures/open_handed_gestures.pdf',
+       width = 6, height = 4)
 ```
 
 Create a model for big gestures:
@@ -779,6 +1122,60 @@ ground <- ground %>%
 ground %>% count(Language, Category)
 ```
 
+Data viz for manner:
+
+For plotting, create long format data frames:
+
+```{r}
+manner_avg <- manner %>% select(Language:Superior) %>% 
+  pivot_longer(cols = Friend:Superior,
+               names_to = 'Condition',
+               values_to = 'Proportion')
+```
+
+Create the difference labels:
+
+```{r}
+# Compute differences:
+
+diffs <- manner_avg %>% group_by(ID) %>% 
+  summarize(diff = diff(Proportion)) %>% 
+  mutate(trend = ifelse(diff < 0, 'down', 'not down'))
+
+# Add do average data frame:
+
+manner_avg <- left_join(manner_avg, diffs)
+```
+
+New ggplots for this:
+
+```{r, fig.width = 4, fig.height = 6}
+manner_p <- manner_avg %>% ggplot(aes(x = Condition, y = Proportion,
+                       group = ID,
+                       fill = Condition)) +
+  geom_line(aes(col = trend)) +
+  scale_color_manual(values = c('black', 'grey')) +
+  geom_point(size = 3, shape = 21,
+             alpha = 0.85) +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  xlab('') +
+  ylab('Proportion of\nmanner gestures') +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 16,
+                                                    b = 0, l = 0),
+                                    size = 16, face = 'bold'),
+        axis.text.x = element_text(face = 'bold', size = 12),
+        strip.text.x = element_text(face = 'bold', size = 16)) +
+  facet_wrap(~Language)
+
+# Save:
+
+manner_p
+ggsave(plot = manner_p, filename = '../figures/manner_gestures.pdf',
+       width = 6, height = 4)
+```
+
 Create models:
 
 ```{r, warning = FALSE, message = FALSE}
@@ -900,6 +1297,58 @@ Create a model for viewpoint. We will represent this as a binomial problem since
 dyads <- mutate(dyads,
                 Trial = Observer + Character)
 ```
+
+For plotting, create data frame with by-participant data:
+
+```{r}
+character_avg <- dyads %>% mutate(Character_prop = Character / Trial) %>% 
+  group_by(ID, Language, Condition) %>% 
+  summarize(Proportion = mean(Character_prop))
+```
+
+Create the difference labels:
+
+```{r}
+# Compute differences:
+
+diffs <- character_avg %>% group_by(ID) %>% 
+  summarize(diff = diff(Proportion)) %>% 
+  mutate(trend = ifelse(diff < 0, 'down', 'not down'))
+
+# Add do average data frame:
+
+character_avg <- left_join(character_avg, diffs)
+```
+
+New ggplots for this:
+
+```{r, fig.width = 4, fig.height = 6}
+character_p <- character_avg %>% ggplot(aes(x = Condition, y = Proportion,
+                       group = ID,
+                       fill = Condition)) +
+  geom_line(aes(col = trend)) +
+  scale_color_manual(values = c('black', 'grey')) +
+  geom_point(size = 3, shape = 21,
+             alpha = 0.85) +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  xlab('') +
+  ylab('Proportion of\ncharacter viewpoint gestures') +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 16,
+                                                    b = 0, l = 0),
+                                    size = 16, face = 'bold'),
+        axis.text.x = element_text(face = 'bold', size = 12),
+        strip.text.x = element_text(face = 'bold', size = 16)) +
+  facet_wrap(~Language)
+
+# Save:
+
+character_p
+ggsave(plot = character_p, filename = '../figures/character_VP.pdf',
+       width = 6, height = 4)
+```
+
 
 Fit the model:
 
