@@ -169,6 +169,15 @@ diffs <- avgs %>% group_by(ID) %>%
 avgs <- left_join(avgs, diffs)
 ```
 
+For reporting, trend:
+
+```{r}
+avgs %>%
+  filter(Condition == 'Superior') %>% 
+  ungroup(ID) %>% 
+  count(Language, trend)
+```
+
 Plot this:
 
 ```{r, fig.width = 6, fig.height = 6}
@@ -195,6 +204,10 @@ rate_p <- avgs %>% ggplot(aes(x = Condition, y = rate_M,
 
 rate_p
 ggsave(plot = rate_p, filename = '../figures/gesture_rate.pdf',
+       width = 6, height = 4)
+ggsave(plot = rate_p, filename = '../figures/png/gesture_rate.png',
+       width = 6, height = 4)
+ggsave(plot = rate_p, filename = '../figures/tiff/gesture_rate.tiff',
        width = 6, height = 4)
 ```
 
@@ -512,6 +525,10 @@ lateral_p <- lateral_avg %>% ggplot(aes(x = Condition, y = Proportion,
 lateral_p
 ggsave(plot = lateral_p, filename = '../figures/lateral_gestures.pdf',
        width = 6, height = 4)
+ggsave(plot = lateral_p, filename = '../figures/png/lateral_gestures.png',
+       width = 6, height = 4)
+ggsave(plot = lateral_p, filename = '../figures/tiff/lateral_gestures.tiff',
+       width = 6, height = 4)
 ```
 
 For plotting, create long format data frames:
@@ -564,6 +581,10 @@ sagittal_p <- sagittal_avg %>% ggplot(aes(x = Condition, y = Proportion,
 
 sagittal_p
 ggsave(plot = sagittal_p, filename = '../figures/sagittal_gestures.pdf',
+       width = 6, height = 4)
+ggsave(plot = sagittal_p, filename = '../figures/png/sagittal_gestures.png',
+       width = 6, height = 4)
+ggsave(plot = sagittal_p, filename = '../figures/tiff/sagittal_gestures.tiff',
        width = 6, height = 4)
 ```
 
@@ -618,6 +639,10 @@ vertical_p <- vertical_avg %>% ggplot(aes(x = Condition, y = Proportion,
 
 vertical_p
 ggsave(plot = vertical_p, filename = '../figures/vertical_gestures.pdf',
+       width = 6, height = 4)
+ggsave(plot = vertical_p, filename = '../figures/png/vertical_gestures.png',
+       width = 6, height = 4)
+ggsave(plot = vertical_p, filename = '../figures/tiff/vertical_gestures.tiff',
        width = 6, height = 4)
 ```
 
@@ -741,6 +766,11 @@ Overall number of gestures per condition per language:
 freq_count <- dyads %>% group_by(Language, Condition) %>% 
   summarize(Freq = sum(Both_Hands))
 
+# Tally overall gesture frequency:
+
+freq_totals <- dyads %>% group_by(Language, Condition) %>% 
+  summarize(Freq = sum(Total_Freq))
+
 # Take sums by language for calculating proportions, and calculate them:
 
 freq_count <- freq_count %>% group_by(Language) %>% 
@@ -749,6 +779,16 @@ freq_count <- freq_count %>% group_by(Language) %>%
   mutate(Prop = Freq / Total,
          Prop = round(Prop, 2),
          Percentage = str_c(Prop * 100, '%'))
+
+# Add proportion with total gestures as base rate:
+
+freq_count <- freq_count %>% 
+  right_join(freq_totals, by = c('Condition', 'Language')) %>% 
+  rename(two_hand_freq = Freq.x,
+         total_freq = Freq.y) %>% 
+  mutate(prop_new = two_hand_freq / total_freq,
+         prop_new = round(prop_new, 2),
+         percentage = str_c(prop_new, '%'))
 
 # Check:
 
@@ -834,6 +874,10 @@ both_p <- both_avg %>% ggplot(aes(x = Condition, y = Proportion,
 both_p
 ggsave(plot = both_p, filename = '../figures/both_gestures.pdf',
        width = 6, height = 4)
+ggsave(plot = both_p, filename = '../figures/png/both_gestures.png',
+       width = 6, height = 4)
+ggsave(plot = both_p, filename = '../figures/tiff/both_gestures.tiff',
+       width = 6, height = 4)
 ```
 
 
@@ -898,6 +942,11 @@ Overall number of gestures per condition per language:
 freq_count <- dyads %>% group_by(Language, Condition) %>% 
   summarize(Freq = sum(Shape_Open))
 
+# Tally overall gesture frequency:
+
+freq_totals <- dyads %>% group_by(Language, Condition) %>% 
+  summarize(Freq = sum(Total_Freq))
+
 # Take sums by language for calculating proportions, and calculate them:
 
 freq_count <- freq_count %>% group_by(Language) %>% 
@@ -906,6 +955,16 @@ freq_count <- freq_count %>% group_by(Language) %>%
   mutate(Prop = Freq / Total,
          Prop = round(Prop, 2),
          Percentage = str_c(Prop * 100, '%'))
+
+# Add proportion with total gestures as base rate:
+
+freq_count <- freq_count %>% 
+  right_join(freq_totals, by = c('Condition', 'Language')) %>% 
+  rename(two_hand_freq = Freq.x,
+         total_freq = Freq.y) %>% 
+  mutate(prop_new = two_hand_freq / total_freq,
+         prop_new = round(prop_new, 2),
+         percentage = str_c(prop_new, '%'))
 
 # Check:
 
@@ -989,6 +1048,10 @@ open_p <- open_avg %>% ggplot(aes(x = Condition, y = Proportion,
 
 open_p
 ggsave(plot = open_p, filename = '../figures/open_handed_gestures.pdf',
+       width = 6, height = 4)
+ggsave(plot = open_p, filename = '../figures/png/open_handed_gestures.png',
+       width = 6, height = 4)
+ggsave(plot = open_p, filename = '../figures/tiff/open_handed_gestures.tiff',
        width = 6, height = 4)
 ```
 
@@ -1174,6 +1237,10 @@ manner_p <- manner_avg %>% ggplot(aes(x = Condition, y = Proportion,
 manner_p
 ggsave(plot = manner_p, filename = '../figures/manner_gestures.pdf',
        width = 6, height = 4)
+ggsave(plot = manner_p, filename = '../figures/png/manner_gestures.png',
+       width = 6, height = 4)
+ggsave(plot = manner_p, filename = '../figures/tiff/manner_gestures.tiff',
+       width = 6, height = 4)
 ```
 
 Create models:
@@ -1346,6 +1413,10 @@ character_p <- character_avg %>% ggplot(aes(x = Condition, y = Proportion,
 
 character_p
 ggsave(plot = character_p, filename = '../figures/character_VP.pdf',
+       width = 6, height = 4)
+ggsave(plot = character_p, filename = '../figures/png/character_VP.png',
+       width = 6, height = 4)
+ggsave(plot = character_p, filename = '../figures/tiff/character_VP.tiff',
        width = 6, height = 4)
 ```
 
